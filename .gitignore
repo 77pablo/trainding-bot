@@ -1,0 +1,5 @@
+.env
+quantbot.db
+__pycache__/
+*.exe
+*.pyc
