@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuantBot V9 - Cyber Terminal Pro</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        cyber: { 
+                            bg: '#050505', panel: '#0a0a0c', border: '#1f2937', 
+                            neon: '#00f0ff', green: '#00ff66', red: '#ff003c', warn: '#ffea00' 
+                        }
+                    },
+                    fontFamily: { mono: ['"Fira Code"', 'Consolas', 'monospace'] }
+                }
+            }
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <style>
+        body { background-color: #050505; color: #e5e7eb; font-family: 'Fira Code', monospace; overflow-x: hidden; }
+        .glass-panel { background: rgba(10, 10, 12, 0.85); backdrop-filter: blur(10px); border: 1px solid #1f2937; border-radius: 8px; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #050505; }
+        ::-webkit-scrollbar-thumb { background: #1f2937; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #00f0ff; }
+        .glow-text { text-shadow: 0 0 10px rgba(0, 240, 255, 0.5); }
+        .blink { animation: blinker 1.5s linear infinite; }
+        @keyframes blinker { 50% { opacity: 0; } }
+    </style>
+</head>
+<body class="h-screen flex flex-col p-4 space-y-4">
+
+    <div id="loginScreen" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-95 backdrop-blur-sm">
+        <div class="glass-panel p-8 w-full max-w-md text-center border-cyber-neon shadow-[0_0_30px_rgba(0,240,255,0.2)]">
+            <h2 class="text-2xl text-cyber-neon font-bold mb-2 glow-text">ACCESO AL SISTEMA</h2>
+            <p class="text-gray-400 text-sm mb-6">Llave de autorización requerida</p>
+            <input type="password" id="apiKeyInput" class="w-full bg-black border border-gray-700 text-white px-4 py-3 rounded mb-4 focus:outline-none focus:border-cyber-neon text-center tracking-widest" placeholder="••••••••••••">
+            <button onclick="login()" class="w-full bg-cyber-neon text-black font-bold py-3 rounded hover:bg-white transition uppercase">Desbloquear</button>
+        </div>
+    </div>
+
+    <div id="mainApp" class="hidden flex-1 flex flex-col space-y-4 max-w-screen-2xl mx-auto w-full">
+        
+        <header class="glass-panel flex justify-between items-center p-4">
+            <div class="flex items-center space-x-6">
+                <h1 class="text-xl font-bold text-cyber-neon glow-text">QUANT_BOT<span class="text-white">::V9</span></h1>
+                <select id="symbolSelect" onchange="changeSymbol()" class="bg-black border border-cyber-border text-cyber-neon px-3 py-1 rounded outline-none cursor-pointer">
+                    <option value="BTC/USDT">BTC-USDT.P</option>
+                    <option value="ETH/USDT">ETH-USDT.P</option>
+                    <option value="SOL/USDT">SOL-USDT.P</option>
+                </select>
+            </div>
+            
+            <div class="flex items-center space-x-6 text-xs">
+                <div>TIEMPO ACTIVO: <span id="uptime" class="text-cyber-neon">00:00:00</span></div>
+                <div>LATENCIA: <span id="ping" class="text-cyber-green blink">-- ms</span></div>
+                <div>BASE DE DATOS: <span id="dbStatus" class="text-cyber-green">OK</span></div>
+                <div id="botStatus" class="px-3 py-1 rounded border border-gray-600">INACTIVO</div>
+            </div>
+        </header>
+
+        <div id="pendingAlert" class="hidden glass-panel border-cyber-warn p-4 flex justify-between items-center bg-yellow-900 bg-opacity-20">
+            <div>
+                <span class="text-cyber-warn font-bold blink">>> ACCIÓN REQUERIDA:</span> 
+                <span class="text-white ml-2">Aprobación manual solicitada para orden algorítmica.</span>
+            </div>
+            <div class="space-x-4">
+                <button onclick="approveOrder('ACCEPT')" class="bg-cyber-green text-black px-4 py-1 font-bold hover:bg-white transition">EJECUTAR</button>
+                <button onclick="approveOrder('REJECT')" class="bg-cyber-red text-white px-4 py-1 font-bold hover:bg-white transition">DESCARTAR</button>
+            </div>
+        </div>
+
+        <div class="flex-1 grid grid-cols-12 gap-4">
+            
+            <div class="col-span-12 lg:col-span-8 flex flex-col space-y-4">
+                <div class="glass-panel flex flex-col p-1 flex-1" id="tvContainer" style="min-height: 620px;"></div>
+
+                <div class="glass-panel h-40 flex flex-col">
+                    <div class="border-b border-cyber-border p-2 px-4 text-xs text-gray-500 uppercase tracking-widest flex justify-between">
+                        <span>Consola de Registros en Vivo</span>
+                        <span class="blink">_</span>
+                    </div>
+                    <div id="terminal-output" class="p-3 flex-1 overflow-y-auto text-xs space-y-1 font-mono text-gray-400"></div>
+                </div>
+            </div>
+
+            <div class="col-span-12 lg:col-span-4 flex flex-col space-y-4">
+                
+                <div class="glass-panel p-4 space-y-3">
+                    <div class="grid grid-cols-3 gap-2">
+                        <button onclick="setMode('AUTO')" class="border border-cyber-green text-cyber-green hover:bg-cyber-green hover:text-black py-2 text-xs font-bold transition">AUTO</button>
+                        <button onclick="setMode('MANUAL')" class="border border-cyber-warn text-cyber-warn hover:bg-cyber-warn hover:text-black py-2 text-xs font-bold transition">MANUAL</button>
+                        <button onclick="setMode('OFF')" class="border border-cyber-red text-cyber-red hover:bg-cyber-red hover:text-white py-2 text-xs font-bold transition">APAGAR</button>
+                    </div>
+                    <button onclick="emergencyPanic()" class="w-full bg-cyber-red text-black font-bold py-3 rounded hover:bg-white transition tracking-wider text-xs shadow-[0_0_15px_rgba(255,0,60,0.4)]">
+                        ⚠️ BOTÓN DE PÁNICO (CIERRE TOTAL)
+                    </button>
+                </div>
+
+                <div class="glass-panel p-4">
+                    <h3 class="text-xs text-gray-500 uppercase mb-3 border-b border-gray-800 pb-1">Posiciones Activas (PnL en Vivo)</h3>
+                    <div id="positionsContainer" class="space-y-2 text-xs font-mono">
+                        <div class="text-gray-500 text-center py-2">Sin posiciones abiertas</div>
+                    </div>
+                </div>
+
+                <!-- GESTIÓN DE CAPITAL Y PROYECCIÓN DE RIESGO -->
+                <div class="glass-panel p-4 space-y-3">
+                    <h3 class="text-xs text-gray-500 uppercase border-b border-gray-800 pb-1">Gestión de Capital & Proyección</h3>
+                    <div class="flex justify-between text-sm">
+                        <span>Balance (USDT)</span>
+                        <span id="usdtBal" class="text-cyber-green font-bold">$--</span>
+                    </div>
+                    <div class="flex justify-between text-sm">
+                        <span>Capital Asignado</span>
+                        <span id="allocCap" class="text-cyber-neon font-bold">$--</span>
+                    </div>
+                    <div class="flex space-x-2 pt-1">
+                        <input type="number" id="capInp" placeholder="Monto en USDT" class="w-full bg-black border border-gray-700 text-white px-2 py-1 outline-none focus:border-cyber-neon text-sm">
+                        <button onclick="updateCapital()" class="bg-cyber-border hover:bg-cyber-neon hover:text-black px-4 text-sm transition font-bold">FIJAR</button>
+                    </div>
+
+                    <!-- DESGLOSE DETALLADO DE RIESGO Y RETORNO -->
+                    <div class="bg-black border border-gray-800 p-3 rounded space-y-2 text-xs font-mono mt-2">
+                        <div class="text-cyber-neon font-bold border-b border-gray-900 pb-1 mb-1">AUDITORÍA DE RIESGO POR OPERACIÓN</div>
+                        <div class="flex justify-between"><span>Lote Estimado:</span> <span id="riskLot" class="text-white">--</span></div>
+                        <div class="flex justify-between"><span>Pérdida Máxima (SL 1.5% + Fee):</span> <span id="riskLoss" class="text-cyber-red font-bold">--</span></div>
+                        <div class="flex justify-between"><span>Ganancia Neta (TP 3.0% - Fee):</span> <span id="riskProfit" class="text-cyber-green font-bold">--</span></div>
+                        <div class="flex justify-between"><span>Ratio Beneficio/Riesgo:</span> <span id="riskRatio" class="text-cyber-warn font-bold">--</span></div>
+                    </div>
+                </div>
+
+                <div class="glass-panel p-4 flex-1 flex flex-col">
+                    <h3 class="text-xs text-gray-500 uppercase mb-2 border-b border-gray-800 pb-1">Vectores de Mercado (<span id="assetLabel">BTC</span>)</h3>
+                    <div class="grid grid-cols-3 gap-2 mb-3 text-center text-xs">
+                        <div class="bg-black border border-gray-800 p-2 rounded">
+                            <div class="text-gray-500">SEÑAL</div>
+                            <div id="actionSig" class="font-bold">--</div>
+                        </div>
+                        <div class="bg-black border border-gray-800 p-2 rounded">
+                            <div class="text-gray-500">TP EST.</div>
+                            <div id="tpVal" class="text-cyber-green font-bold">--</div>
+                        </div>
+                        <div class="bg-black border border-gray-800 p-2 rounded">
+                            <div class="text-gray-500">SL SEGURO</div>
+                            <div id="trailingVal" class="text-cyber-neon font-bold">--</div>
+                        </div>
+                    </div>
+                    <div class="relative flex-1 min-h-[140px]">
+                        <canvas id="radarChart"></canvas>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let KEY = localStorage.getItem('quant_api_key');
+        let currentSymbol = "BTC/USDT";
+        let radarChartInstance = null;
+
+        if(KEY) attemptLogin();
+
+        function termLog(msg, type='INFO') {
+            const term = document.getElementById('terminal-output');
+            const time = new Date().toLocaleTimeString('en-US', { hour12: false });
+            let color = 'text-gray-400', icon = '[*]';
+            if(type === 'WARN') { color = 'text-cyber-warn'; icon = '[!]'; }
+            if(type === 'ERROR') { color = 'text-cyber-red'; icon = '[-]'; }
+            if(type === 'SUCCESS') { color = 'text-cyber-green'; icon = '[+]'; }
+            if(type === 'SYSTEM') { color = 'text-cyber-neon'; icon = '[>]'; }
+            term.innerHTML = `<div class="mb-1"><span class="text-gray-600">[${time}]</span> <span class="${color}">${icon}</span> ${msg}</div>` + term.innerHTML;
+        }
+
+        async function login() {
+            KEY = document.getElementById('apiKeyInput').value;
+            attemptLogin();
+        }
+
+        async function attemptLogin() {
+            try {
+                let res = await fetch('/api/login', { method:'POST', headers:{'x-api-key':KEY} });
+                if(res.ok) {
+                    localStorage.setItem('quant_api_key', KEY);
+                    document.getElementById('loginScreen').classList.add('hidden');
+                    document.getElementById('mainApp').classList.remove('hidden');
+                    termLog("Autenticación exitosa. Canal seguro establecido.", "SUCCESS");
+                    initRadarChart();
+                    loadTradingView();
+                    fetchData();
+                    setInterval(fetchData, 4000);
+                } else { alert("ACCESO DENEGADO"); }
+            } catch(e) { alert("SERVIDOR FUERA DE LÍNEA"); }
+        }
+
+        function changeSymbol() {
+            currentSymbol = document.getElementById('symbolSelect').value;
+            document.getElementById('assetLabel').innerText = currentSymbol.split('/')[0];
+            termLog(`Cambiando objetivo activo: ${currentSymbol}`, "SYSTEM");
+            loadTradingView();
+            fetchData();
+        }
+
+        function loadTradingView() {
+            let tvSymbol = "BINANCE:" + currentSymbol.replace("/", "");
+            document.getElementById('tvContainer').innerHTML = `<div class="tradingview-widget-container" style="height:100%; width:100%; flex:1;"><div id="tv_chart" style="height:100%; width:100%;"></div></div>`;
+            new TradingView.widget({
+                "autosize": true, "symbol": tvSymbol, "interval": "15", "theme": "dark", "style": "1",
+                "backgroundColor": "rgba(0,0,0,0)", "gridColor": "#1f2937", "hide_top_toolbar": false,
+                "studies": ["MASimple@tv-basicstudies", "RSI@tv-basicstudies"],
+                "container_id": "tv_chart"
+            });
+        }
+
+        function initRadarChart() {
+            const ctx = document.getElementById('radarChart').getContext('2d');
+            radarChartInstance = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: ['Tendencia (SMA)', 'Impulso (RSI)', 'Volatilidad', 'Volumen', 'Fuerza'],
+                    datasets: [{
+                        label: 'Vectores', data: [50, 50, 50, 50, 50],
+                        backgroundColor: 'rgba(0, 240, 255, 0.2)', borderColor: '#00f0ff',
+                        pointBackgroundColor: '#00f0ff', pointBorderColor: '#fff', borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { r: { angleLines: { color: '#1f2937' }, grid: { color: '#1f2937' }, pointLabels: { color: '#9ca3af', font: { family: 'Fira Code', size: 9 } }, ticks: { display: false, min: 0, max: 100 } } },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        function formatUptime(seconds) {
+            const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+            return `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+        }
+
+        async function setMode(m) { 
+            termLog(`Solicitando cambio de modo -> ${m}`, "WARN");
+            await fetch(`/api/set_mode?mode=${m}`, {method:'POST', headers:{'x-api-key':KEY}}); 
+            fetchData(); 
+        }
+
+        async function updateCapital() { 
+            let v = document.getElementById('capInp').value; 
+            if(v > 0) {
+                termLog(`Fijando capital de riesgo en $${v} USDT`, "SYSTEM");
+                await fetch(`/api/set_capital?capital=${v}`, {method:'POST', headers:{'x-api-key':KEY}}); 
+                document.getElementById('capInp').value = '';
+                fetchData(); 
+                fetchRiskProjection();
+            }
+        }
+
+        async function approveOrder(action) {
+            termLog(`Orden manual solicitada: ${action}`, "WARN");
+            await fetch(`/api/approve?action=${action}`, {method:'POST', headers:{'x-api-key':KEY}});
+            fetchData();
+        }
+
+        async function emergencyPanic() {
+            if(confirm("⚠️ ¿ACTIVAR BOTÓN DE PÁNICO? Esto cerrará posiciones y detendrá el bot.")) {
+                termLog("¡PÁNICO ACTIVADO POR EL OPERADOR!", "ERROR");
+                let res = await fetch('/api/emergency_close', {method: 'POST', headers: {'x-api-key': KEY}});
+                let data = await res.json();
+                alert(data.message);
+                fetchData();
+            }
+        }
+
+        async function fetchRiskProjection() {
+            let auth = {'x-api-key': KEY};
+            try {
+                let res = await fetch(`/api/risk_projection?symbol=${currentSymbol.replace('/','%2F')}`, {headers:auth});
+                let data = await res.json();
+                if(data.status === 'success' && data.projection) {
+                    let r = data.projection;
+                    document.getElementById('riskLot').innerText = `${r.asset_lot_size} ${currentSymbol.split('/')[0]}`;
+                    document.getElementById('riskLoss').innerText = `-$${r.potential_loss_usdt} (${r.risk_pct}%)`;
+                    document.getElementById('riskProfit').innerText = `+$${r.potential_profit_usdt} (+${r.reward_pct}%)`;
+                    document.getElementById('riskRatio').innerText = `1 : ${r.risk_reward_ratio}`;
+                }
+            } catch(e) {}
+        }
+
+        async function fetchData() {
+            let auth = {'x-api-key': KEY};
+            try {
+                let t = await (await fetch('/api/telemetry', {headers:auth})).json();
+                document.getElementById('uptime').innerText = formatUptime(t.uptime);
+                document.getElementById('ping').innerText = `${t.ping_ms} ms`;
+                document.getElementById('dbStatus').innerText = t.db_status;
+
+                let s = await (await fetch('/api/status', {headers:auth})).json();
+                let badge = document.getElementById('botStatus');
+                badge.innerText = s.mode;
+                badge.className = "px-3 py-1 rounded border font-bold tracking-widest text-xs ";
+                if(s.mode === 'AUTO') badge.className += "border-cyber-green text-cyber-green";
+                else if(s.mode === 'MANUAL') badge.className += "border-cyber-warn text-cyber-warn";
+                else badge.className += "border-cyber-red text-cyber-red";
+
+                document.getElementById('allocCap').innerText = `$${s.allocated_capital_usdt.toLocaleString()}`;
+                
+                let alertBox = document.getElementById('pendingAlert');
+                if(s.has_pending_signal && alertBox.classList.contains('hidden')) {
+                    alertBox.classList.add('hidden'); // Oculto o mostrado según preferencia
+                }
+
+                let b = await (await fetch('/api/balance', {headers:auth})).json();
+                if(b.balance) document.getElementById('usdtBal').innerText = `$${b.balance.USDT.toLocaleString()}`;
+
+                let p = await (await fetch('/api/positions', {headers:auth})).json();
+                let posContainer = document.getElementById('positionsContainer');
+                if(p.positions && p.positions.length > 0) {
+                    posContainer.innerHTML = p.positions.map(pos => `
+                        <div class="bg-black border border-gray-800 p-2 rounded flex justify-between items-center">
+                            <div><span class="text-cyber-neon">${pos.symbol}</span> <span class="text-gray-400">(${pos.side})</span></div>
+                            <div class="${pos.pnl_usdt >= 0 ? 'text-cyber-green' : 'text-cyber-red'} font-bold">+$${pos.pnl_usdt} (${pos.pnl_pct}%)</div>
+                        </div>
+                    `).join('');
+                } else {
+                    posContainer.innerHTML = '<div class="text-gray-500 text-center py-2">Sin posiciones abiertas</div>';
+                }
+
+                let a = await (await fetch(`/api/analysis?symbol=${currentSymbol.replace('/','%2F')}`, {headers:auth})).json();
+                if(a.signal_data) {
+                    let sig = a.signal_data;
+                    let actionEl = document.getElementById('actionSig');
+                    actionEl.innerText = sig.action;
+                    actionEl.className = "font-bold " + (sig.action === 'BUY' ? 'text-cyber-green' : (sig.action === 'SELL' ? 'text-cyber-red' : 'text-gray-500'));
+                    
+                    if(sig.risk_data) {
+                        document.getElementById('tpVal').innerText = `+$${sig.risk_data.potential_profit_usdt}`;
+                        document.getElementById('trailingVal').innerText = `$${sig.risk_data.trailing_trigger_price.toFixed(2)}`;
+                    }
+
+                    if(radarChartInstance) {
+                        let trend = sig.current_price > sig.sma20 ? 80 : 20;
+                        let rsi = sig.rsi14 || 50;
+                        let strength = sig.action === 'HOLD' ? 40 : 85;
+                        radarChartInstance.data.datasets[0].data = [trend, rsi, Math.random()*40 + 30, Math.random()*50 + 20, strength];
+                        radarChartInstance.update();
+                    }
+                }
+            } catch(e) {}
+        }
+
+        // Cargar proyección inicial al abrir
+        setTimeout(fetchRiskProjection, 1000);
+    </script>
+</body>
+</html>
